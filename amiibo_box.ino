@@ -244,13 +244,13 @@ void irda_begin() {
   Serial2.begin(IR_BAUD, SERIAL_8N1, IR_RX_PIN, IR_TX_PIN);
 
   // Habilita modo IrDA no hardware UART1 do ESP32
-  // Usa acesso direto ao registrador CONF0 do UART1
-  // Endereço: 0x3FF6E020 — Bit 16=IRDA_EN, Bit 10=IRDA_TX_EN
-  uint32_t conf0 = READ_PERI_REG(UART_CONF0_REG(1));
-  conf0 |=  (1 << 16); // UART_IRDA_EN
-  conf0 |=  (1 << 10); // UART_IRDA_TX_EN
-  conf0 &= ~(1 << 9);  // UART_IRDA_RX_EN = 0
-  WRITE_PERI_REG(UART_CONF0_REG(1), conf0);
+  // UART1 CONF0 register endereço direto: 0x3FF6E020
+  // Bit 16 = IRDA_EN, Bit 10 = IRDA_TX_EN, Bit 9 = IRDA_RX_EN
+  #define UART1_CONF0_REG 0x3FF6E020
+  volatile uint32_t* conf0 = (volatile uint32_t*)UART1_CONF0_REG;
+  *conf0 |=  (1 << 16); // UART_IRDA_EN
+  *conf0 |=  (1 << 10); // UART_IRDA_TX_EN
+  *conf0 &= ~(1 << 9);  // UART_IRDA_RX_EN = 0
 }
 
 // Calcula checksum XOR dos bytes
@@ -493,30 +493,33 @@ void run_nfc_emulation() {
 
   while (reading_active && millis() - session_start < 30000) {
 
-    // Configura target para emulação passiva 106kbps (ISO14443A / NTAG215)
-    // Parâmetros: SENS_RES(2) + NFCID_len(1) + NFCID(7) + SEL_RES(1) = 11 bytes
-    uint8_t targetData[11];
-    targetData[0] = 0x44; // SENS_RES byte 0 (ATQA)
-    targetData[1] = 0x00; // SENS_RES byte 1
-    targetData[2] = 7;    // NFCID1 length
-    memcpy(&targetData[3], uid, 7);
-    targetData[10] = 0x00; // SAK
+    // tgInitAsTarget na Adafruit PN532 1.3.4:
+    // bool tgInitAsTarget(uint8_t* command, uint8_t clen, uint16_t timeout)
+    // Monta comando TgInitAsTarget manualmente via writecommand/getresponse
+    // Estrutura: [0x01(passive106)] [SENS_RES 2b] [NFCID1 len + bytes] [SEL_RES]
+    uint8_t cmd[14];
+    cmd[0]  = 0x00; // BRTY = passive 106kbps ISO14443A
+    cmd[1]  = 0x44; // SENS_RES byte 1
+    cmd[2]  = 0x00; // SENS_RES byte 2
+    memcpy(&cmd[3], uid, 7); // NFCID1 (7 bytes)
+    cmd[10] = 0x00; // SEL_RES (SAK)
+    cmd[11] = 0x00; // LEN historical bytes
+    cmd[12] = 0x00; // LEN general bytes
 
     uint8_t responseBuffer[64];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    // tgInitAsTarget: coloca PN532 em modo escuta esperando um initiator
-    bool got_data = nfc.tgInitAsTarget(
-      targetData,          // parâmetros do target
-      sizeof(targetData),
-      responseBuffer,      // primeiro comando recebido
-      &responseLength,
-      2000                 // timeout 2s
-    );
+    bool got_data = nfc.tgInitAsTarget(cmd, 13, 2000);
 
     if (!got_data) {
       M5.update();
       if (M5.BtnB.wasPressed()) break;
+      continue;
+    }
+
+    // Lê o primeiro comando enviado pelo initiator
+    responseLength = sizeof(responseBuffer);
+    if (!nfc.tgGetData(responseBuffer, &responseLength)) {
       continue;
     }
 
@@ -533,7 +536,6 @@ void run_nfc_emulation() {
         uint8_t reply_len = 0;
 
         if (cmd_code == 0x30 && responseLength >= 2) {
-          // READ - 4 páginas a partir da página pedida
           uint8_t start_page = responseBuffer[1];
           for (int i = 0; i < 16; i++) {
             reply[i] = currentBin[(start_page * 4 + i) % BIN_SIZE];
@@ -541,7 +543,6 @@ void run_nfc_emulation() {
           reply_len = 16;
 
         } else if (cmd_code == 0xA2 && responseLength >= 6) {
-          // WRITE - ACK
           uint8_t write_page = responseBuffer[1];
           int byte_start = write_page * 4;
           if (byte_start + 4 <= BIN_SIZE) {
@@ -551,13 +552,11 @@ void run_nfc_emulation() {
           reply_len = 1;
 
         } else if (cmd_code == 0x60) {
-          // GET_VERSION
           uint8_t ver[8] = {0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03};
           memcpy(reply, ver, 8);
           reply_len = 8;
 
         } else if (cmd_code == 0x3A && responseLength >= 3) {
-          // FAST_READ
           uint8_t start_pg = responseBuffer[1];
           uint8_t end_pg   = responseBuffer[2];
           int num_bytes    = (end_pg - start_pg + 1) * 4;
@@ -568,18 +567,21 @@ void run_nfc_emulation() {
           reply_len = num_bytes;
 
         } else {
-          // NACK
           reply[0] = 0x00;
           reply_len = 1;
         }
 
-        // Envia resposta e aguarda próximo comando
+        // Envia resposta
+        if (!nfc.tgSetData(reply, reply_len)) {
+          session_active = false;
+          break;
+        }
+
+        // Aguarda próximo comando
         responseLength = sizeof(responseBuffer);
-        bool ok = nfc.tgSetDataAndGetData(
-          reply, reply_len,
-          responseBuffer, &responseLength
-        );
-        if (!ok) session_active = false;
+        if (!nfc.tgGetData(responseBuffer, &responseLength)) {
+          session_active = false;
+        }
       } else {
         session_active = false;
       }
