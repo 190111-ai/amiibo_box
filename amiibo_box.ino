@@ -30,9 +30,9 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
-#include <Adafruit_PN532.h>
+#include <PN532.h>
+#include <PN532_I2C.h>
 #include "soc/uart_struct.h"
-#include "driver/uart.h"
 
 // ──────────────────────────────────────────────
 //  CONFIGURAÇÕES
@@ -69,7 +69,8 @@ static const uint8_t XOR_KEY[]       = {0xA5, 0x5A, 0xA5, 0x5A, 0xA5, 0x5A, 0xA5
 // ──────────────────────────────────────────────
 AsyncWebServer server(80);
 TwoWire i2cBus = TwoWire(0);
-Adafruit_PN532 nfc(PN532_SDA, PN532_SCL, &i2cBus);
+PN532_I2C pn532i2c(i2cBus);
+PN532 nfc(pn532i2c);
 
 // Lista de amiibos na memória
 struct AmiiboEntry {
@@ -493,9 +494,6 @@ void run_nfc_emulation() {
 
   while (reading_active && millis() - session_start < 30000) {
 
-    // tgInitAsTarget na Adafruit PN532 1.3.4:
-    // bool tgInitAsTarget(uint8_t* command, uint8_t clen, uint16_t timeout)
-    // Monta comando TgInitAsTarget manualmente via writecommand/getresponse
     // Estrutura: [0x01(passive106)] [SENS_RES 2b] [NFCID1 len + bytes] [SEL_RES]
     uint8_t cmd[14];
     cmd[0]  = 0x00; // BRTY = passive 106kbps ISO14443A
@@ -509,9 +507,9 @@ void run_nfc_emulation() {
     uint8_t responseBuffer[64];
     uint8_t responseLength = sizeof(responseBuffer);
 
-    bool got_data = nfc.tgInitAsTarget(cmd, 13, 2000);
+    int got_data = nfc.AsTarget();
 
-    if (!got_data) {
+    if (got_data != 1) {
       M5.update();
       if (M5.BtnB.wasPressed()) break;
       continue;
@@ -519,7 +517,7 @@ void run_nfc_emulation() {
 
     // Lê o primeiro comando enviado pelo initiator
     responseLength = sizeof(responseBuffer);
-    if (!nfc.tgGetData(responseBuffer, &responseLength)) {
+    if (nfc.getDataTarget(responseBuffer, &responseLength) != 1) {
       continue;
     }
 
@@ -572,14 +570,14 @@ void run_nfc_emulation() {
         }
 
         // Envia resposta
-        if (!nfc.tgSetData(reply, reply_len)) {
+        if (nfc.setDataTarget(reply, reply_len) != 1) {
           session_active = false;
           break;
         }
 
         // Aguarda próximo comando
         responseLength = sizeof(responseBuffer);
-        if (!nfc.tgGetData(responseBuffer, &responseLength)) {
+        if (nfc.getDataTarget(responseBuffer, &responseLength) != 1) {
           session_active = false;
         }
       } else {
