@@ -1,4 +1,3 @@
-```yaml
 name: Build AmiiboBox Firmware
 
 on:
@@ -78,4 +77,3 @@ jobs:
             ./build/amiibo_emulator.ino.bootloader.bin
             ./build/amiibo_emulator.ino.partitions.bin
           retention-days: 30
-```
