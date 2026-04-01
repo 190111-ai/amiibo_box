@@ -15,7 +15,9 @@ jobs:
 
       - name: Install Arduino CLI
         run: |
-          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | sh
+          mkdir -p $HOME/bin
+          curl -fsSL https://github.com/arduino/arduino-cli/releases/download/v1.1.1/arduino-cli_1.1.1_Linux_64bit.tar.gz -o arduino-cli.tar.gz
+          tar -xzf arduino-cli.tar.gz -C $HOME/bin
           echo "$HOME/bin" >> $GITHUB_PATH
 
       - name: Configure Arduino CLI
@@ -52,6 +54,8 @@ jobs:
       - name: Merge into single flashable .bin
         run: |
           pip install esptool --break-system-packages
+          DATADIR=$(arduino-cli config dump | grep "data:" | awk '{print $2}')
+          BOOT_APP=$(ls $DATADIR/packages/m5stack/hardware/esp32/*/tools/partitions/boot_app0.bin | tail -1)
           esptool.py --chip esp32 merge_bin \
             -o ./build/amiibobox_flash.bin \
             --flash_mode dio \
@@ -59,7 +63,7 @@ jobs:
             --flash_size 8MB \
             0x1000  ./build/amiibo_emulator.ino.bootloader.bin \
             0x8000  ./build/amiibo_emulator.ino.partitions.bin \
-            0xe000  $(arduino-cli config dump | grep data | awk '{print $2}')/packages/m5stack/hardware/esp32/*/tools/partitions/boot_app0.bin \
+            0xe000  $BOOT_APP \
             0x10000 ./build/amiibo_emulator.ino.bin
 
       - name: Upload firmware artifact
