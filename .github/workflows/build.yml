@@ -47,25 +47,30 @@ jobs:
 
       - name: Compile firmware
         run: |
+          INO=$(find . -name "*.ino" | head -1)
+          echo "Compilando: $INO"
           arduino-cli compile \
             --fqbn m5stack:esp32:m5stick-c-plus2 \
             --output-dir ./build \
-            amiibo_emulator.ino
+            "$INO"
 
       - name: Merge into single flashable .bin
         run: |
           pip install esptool --break-system-packages
           DATADIR=$(arduino-cli config dump | grep "data:" | awk '{print $2}')
           BOOT_APP=$(ls $DATADIR/packages/m5stack/hardware/esp32/*/tools/partitions/boot_app0.bin | tail -1)
+          BIN=$(find ./build -name "*.ino.bin" | head -1)
+          BOOT=$(find ./build -name "*.bootloader.bin" | head -1)
+          PART=$(find ./build -name "*.partitions.bin" | head -1)
           esptool.py --chip esp32 merge_bin \
             -o ./build/amiibobox_flash.bin \
             --flash_mode dio \
             --flash_freq 80m \
             --flash_size 8MB \
-            0x1000  ./build/amiibo_emulator.ino.bootloader.bin \
-            0x8000  ./build/amiibo_emulator.ino.partitions.bin \
+            0x1000  $BOOT \
+            0x8000  $PART \
             0xe000  $BOOT_APP \
-            0x10000 ./build/amiibo_emulator.ino.bin
+            0x10000 $BIN
 
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v4
@@ -73,7 +78,4 @@ jobs:
           name: amiibobox-firmware
           path: |
             ./build/amiibobox_flash.bin
-            ./build/amiibo_emulator.ino.bin
-            ./build/amiibo_emulator.ino.bootloader.bin
-            ./build/amiibo_emulator.ino.partitions.bin
           retention-days: 30
