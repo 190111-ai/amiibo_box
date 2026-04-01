@@ -40,10 +40,16 @@ jobs:
           curl -fsSL https://github.com/me-no-dev/AsyncTCP/archive/refs/heads/master.zip -o AsyncTCP.zip
           curl -fsSL https://github.com/me-no-dev/ESPAsyncWebServer/archive/refs/heads/master.zip -o ESPAsyncWebServer.zip
           curl -fsSL https://github.com/elechouse/PN532/archive/refs/heads/PN532_HSU.zip -o PN532.zip
+          unzip PN532.zip
+          cd PN532-PN532_HSU
+          zip -r ../PN532lib.zip PN532/
+          zip -r ../PN532_I2C.zip PN532_I2C/
+          cd ..
           arduino-cli config set library.enable_unsafe_install true
           arduino-cli lib install --zip-path AsyncTCP.zip
           arduino-cli lib install --zip-path ESPAsyncWebServer.zip
-          arduino-cli lib install --zip-path PN532.zip
+          arduino-cli lib install --zip-path PN532lib.zip
+          arduino-cli lib install --zip-path PN532_I2C.zip
 
       - name: Compile firmware
         run: |
