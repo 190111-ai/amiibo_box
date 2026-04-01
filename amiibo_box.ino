@@ -31,6 +31,8 @@
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <Adafruit_PN532.h>
+#include "soc/uart_struct.h"
+#include "driver/uart.h"
 
 // ──────────────────────────────────────────────
 //  CONFIGURAÇÕES
@@ -238,16 +240,17 @@ bool loadAmiiboBin(int index) {
 // Configura UART1 no modo IrDA-SIR (sem modulação de portadora)
 // O ESP32 tem suporte nativo a IrDA via registrador de hardware
 void irda_begin() {
-  // Inicia Serial2 em G19 (TX) sem pino RX
+  // Inicia Serial2 (UART1) em G19 (TX) sem pino RX
   Serial2.begin(IR_BAUD, SERIAL_8N1, IR_RX_PIN, IR_TX_PIN);
 
   // Habilita modo IrDA no hardware UART1 do ESP32
-  // REG 0x3FF6E020 = UART1 CONF0
-  // Bit 16 = IRDA_EN, Bit 10 = IRDA_TX_EN
-  #include "soc/uart_struct.h"
-  UART1.conf0.irda_en    = 1;
-  UART1.conf0.irda_tx_en = 1;
-  UART1.conf0.irda_rx_en = 0; // sem receptor por padrão
+  // Usa acesso direto ao registrador CONF0 do UART1
+  // Endereço: 0x3FF6E020 — Bit 16=IRDA_EN, Bit 10=IRDA_TX_EN
+  uint32_t conf0 = READ_PERI_REG(UART_CONF0_REG(1));
+  conf0 |=  (1 << 16); // UART_IRDA_EN
+  conf0 |=  (1 << 10); // UART_IRDA_TX_EN
+  conf0 &= ~(1 << 9);  // UART_IRDA_RX_EN = 0
+  WRITE_PERI_REG(UART_CONF0_REG(1), conf0);
 }
 
 // Calcula checksum XOR dos bytes
@@ -486,29 +489,29 @@ void run_nfc_emulation() {
   drawScreen();
 
   unsigned long session_start = millis();
-  int page_offset = 0;
   bool reading_active = true;
 
   while (reading_active && millis() - session_start < 30000) {
-    // Tenta iniciar emulação de target
-    // O PN532 aguarda um initiator (Switch/Wii U) se conectar
-    uint8_t cmd[64];
-    uint8_t cmdLen = 0;
 
-    // Configura target para emulação passiva 106kbps (ISO14443A)
-    uint8_t targetData[37];
-    targetData[0]  = 0x00; // SENS_RES (ATQA byte 0)
-    targetData[1]  = 0x44; // SENS_RES (ATQA byte 1)
-    targetData[2]  = 0x00; // SAK
-    targetData[3]  = 7;    // NFCID length
-    memcpy(&targetData[4], uid, 7);
+    // Configura target para emulação passiva 106kbps (ISO14443A / NTAG215)
+    // Parâmetros: SENS_RES(2) + NFCID_len(1) + NFCID(7) + SEL_RES(1) = 11 bytes
+    uint8_t targetData[11];
+    targetData[0] = 0x44; // SENS_RES byte 0 (ATQA)
+    targetData[1] = 0x00; // SENS_RES byte 1
+    targetData[2] = 7;    // NFCID1 length
+    memcpy(&targetData[3], uid, 7);
+    targetData[10] = 0x00; // SAK
 
+    uint8_t responseBuffer[64];
+    uint8_t responseLength = sizeof(responseBuffer);
+
+    // tgInitAsTarget: coloca PN532 em modo escuta esperando um initiator
     bool got_data = nfc.tgInitAsTarget(
-      0x00,        // mode: passive
-      targetData,
-      NULL, 0,     // GeneralBytes
-      responseBuffer, &responseLength,
-      2000         // timeout 2s
+      targetData,          // parâmetros do target
+      sizeof(targetData),
+      responseBuffer,      // primeiro comando recebido
+      &responseLength,
+      2000                 // timeout 2s
     );
 
     if (!got_data) {
@@ -521,68 +524,65 @@ void run_nfc_emulation() {
     statusMsg = "Leitura em andamento!";
     drawScreen();
 
-    // Responde a comandos READ do NTAG215
-    // Cada READ pede 4 páginas (16 bytes) a partir de uma página inicial
+    // Loop de resposta a comandos NTAG215
     bool session_active = true;
     while (session_active) {
-      if (responseLength >= 2) {
+      if (responseLength >= 1) {
         uint8_t cmd_code = responseBuffer[0];
+        uint8_t reply[64];
+        uint8_t reply_len = 0;
 
-        if (cmd_code == 0x30) {
-          // READ command - responseBuffer[1] = página inicial
+        if (cmd_code == 0x30 && responseLength >= 2) {
+          // READ - 4 páginas a partir da página pedida
           uint8_t start_page = responseBuffer[1];
-          uint8_t read_data[16];
-
           for (int i = 0; i < 16; i++) {
-            int byte_idx = (start_page * 4 + i) % BIN_SIZE;
-            read_data[i] = currentBin[byte_idx];
+            reply[i] = currentBin[(start_page * 4 + i) % BIN_SIZE];
           }
+          reply_len = 16;
 
-          nfc.tgSetData(read_data, 16);
-
-        } else if (cmd_code == 0xA2) {
-          // WRITE command - responde com ACK
-          uint8_t ack = 0x0A;
-          nfc.tgSetData(&ack, 1);
-
-          // Salva dado escrito (para write-back)
-          if (responseLength >= 6) {
-            uint8_t write_page = responseBuffer[1];
-            int byte_start = write_page * 4;
-            if (byte_start + 4 <= BIN_SIZE) {
-              memcpy(&currentBin[byte_start], &responseBuffer[2], 4);
-            }
+        } else if (cmd_code == 0xA2 && responseLength >= 6) {
+          // WRITE - ACK
+          uint8_t write_page = responseBuffer[1];
+          int byte_start = write_page * 4;
+          if (byte_start + 4 <= BIN_SIZE) {
+            memcpy(&currentBin[byte_start], &responseBuffer[2], 4);
           }
+          reply[0] = 0x0A;
+          reply_len = 1;
 
         } else if (cmd_code == 0x60) {
-          // GET_VERSION - retorna info do NTAG215
-          uint8_t version[8] = {0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03};
-          nfc.tgSetData(version, 8);
+          // GET_VERSION
+          uint8_t ver[8] = {0x00, 0x04, 0x04, 0x02, 0x01, 0x00, 0x11, 0x03};
+          memcpy(reply, ver, 8);
+          reply_len = 8;
 
-        } else if (cmd_code == 0x3A) {
+        } else if (cmd_code == 0x3A && responseLength >= 3) {
           // FAST_READ
           uint8_t start_pg = responseBuffer[1];
           uint8_t end_pg   = responseBuffer[2];
-          int num_pages    = end_pg - start_pg + 1;
-          int num_bytes    = num_pages * 4;
-          uint8_t fast_data[num_bytes];
+          int num_bytes    = (end_pg - start_pg + 1) * 4;
+          if (num_bytes > 60) num_bytes = 60;
           for (int i = 0; i < num_bytes; i++) {
-            int idx = (start_pg * 4 + i) % BIN_SIZE;
-            fast_data[i] = currentBin[idx];
+            reply[i] = currentBin[(start_pg * 4 + i) % BIN_SIZE];
           }
-          nfc.tgSetData(fast_data, num_bytes);
+          reply_len = num_bytes;
 
         } else {
-          // Comando desconhecido - NACK
-          uint8_t nack = 0x00;
-          nfc.tgSetData(&nack, 1);
+          // NACK
+          reply[0] = 0x00;
+          reply_len = 1;
         }
-      }
 
-      // Aguarda próximo comando
-      responseLength = 0;
-      bool got_cmd = nfc.tgGetData(responseBuffer, &responseLength, 2000);
-      if (!got_cmd) session_active = false;
+        // Envia resposta e aguarda próximo comando
+        responseLength = sizeof(responseBuffer);
+        bool ok = nfc.tgSetDataAndGetData(
+          reply, reply_len,
+          responseBuffer, &responseLength
+        );
+        if (!ok) session_active = false;
+      } else {
+        session_active = false;
+      }
     }
 
     statusMsg = "Leitura concluida!";
