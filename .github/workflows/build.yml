@@ -1,4 +1,3 @@
-```yaml
 name: Build AmiiboBox Firmware
 
 on:
@@ -81,6 +80,3 @@ jobs:
           name: amiibobox-firmware
           path: ./build/amiibobox_flash.bin
           retention-days: 30
-```
-
-Me manda o print do step **Install ESP32 / M5Stack platform** depois de rodar — vai mostrar o FQBN exato disponível para o StickC Plus2.
