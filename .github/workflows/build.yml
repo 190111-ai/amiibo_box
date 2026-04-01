@@ -1,3 +1,4 @@
+```yaml
 name: Build AmiiboBox Firmware
 
 on:
@@ -41,6 +42,7 @@ jobs:
           arduino-cli lib install "Adafruit BusIO"
           curl -fsSL https://github.com/me-no-dev/AsyncTCP/archive/refs/heads/master.zip -o AsyncTCP.zip
           curl -fsSL https://github.com/me-no-dev/ESPAsyncWebServer/archive/refs/heads/master.zip -o ESPAsyncWebServer.zip
+          arduino-cli config set library.enable_unsafe_install true
           arduino-cli lib install --zip-path AsyncTCP.zip
           arduino-cli lib install --zip-path ESPAsyncWebServer.zip
 
@@ -76,3 +78,4 @@ jobs:
             ./build/amiibo_emulator.ino.bootloader.bin
             ./build/amiibo_emulator.ino.partitions.bin
           retention-days: 30
+```
