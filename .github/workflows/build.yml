@@ -1,3 +1,4 @@
+```yaml
 name: Build AmiiboBox Firmware
 
 on:
@@ -30,6 +31,8 @@ jobs:
         run: |
           arduino-cli core update-index
           arduino-cli core install m5stack:esp32
+          echo "--- Boards disponíveis com stick ---"
+          arduino-cli board listall | grep -i stick
 
       - name: Install libraries
         run: |
@@ -76,6 +79,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: amiibobox-firmware
-          path: |
-            ./build/amiibobox_flash.bin
+          path: ./build/amiibobox_flash.bin
           retention-days: 30
+```
+
+Me manda o print do step **Install ESP32 / M5Stack platform** depois de rodar — vai mostrar o FQBN exato disponível para o StickC Plus2.
