@@ -52,7 +52,7 @@ jobs:
           INO=$(find . -name "*.ino" | head -1)
           echo "Compilando: $INO"
           arduino-cli compile \
-            --fqbn m5stack:esp32:m5stickc-plus2 \
+            --fqbn m5stack:esp32:m5stack_stickc_plus2 \
             --output-dir ./build \
             "$INO"
 
