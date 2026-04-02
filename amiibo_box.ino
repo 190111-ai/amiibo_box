@@ -910,6 +910,7 @@ void setupWebServer() {
 //  SETUP
 // ──────────────────────────────────────────────
 void setup() {
+  Serial.begin(115200);
   auto cfg = M5.config();
   StickCP2.begin(cfg);
 
@@ -921,24 +922,31 @@ void setup() {
 
   // SPIFFS
   if (!SPIFFS.begin(true)) {
+    Serial.println("[ERRO] SPIFFS falhou!");
     M5.Display.setCursor(10, 65);
     M5.Display.setTextColor(RED);
     M5.Display.print("SPIFFS falhou!");
     delay(3000);
+  } else {
+    Serial.println("[OK] SPIFFS iniciado");
   }
 
   // WiFi AP
   WiFi.softAP(AP_SSID, AP_PASSWORD);
+  Serial.printf("[OK] WiFi AP: %s IP: %s\n", AP_SSID, WiFi.softAPIP().toString().c_str());
   setupWebServer();
 
   // IrDA
   irda_begin();
+  Serial.println("[OK] IrDA iniciado em G19");
 
   // PN532
   pn532_ok = pn532_init();
+  Serial.printf("[%s] PN532 %s\n", pn532_ok ? "OK" : "ERRO", pn532_ok ? "detectado" : "nao encontrado");
 
   // Carrega lista
   scanAmiiboFiles();
+  Serial.printf("[OK] %d amiibo(s) encontrado(s) no SPIFFS\n", amiiboCount);
 
   currentState = STATE_MENU;
   drawScreen();
@@ -947,12 +955,26 @@ void setup() {
 // ──────────────────────────────────────────────
 //  LOOP
 // ──────────────────────────────────────────────
+int lastSelectedIndex = -2;
+bool lastBinLoaded = false;
+
 void loop() {
-  M5.update();
+  StickCP2.update();
+
+  // Redesenha tela automaticamente quando seleção muda via WebUI
+  if (selectedIndex != lastSelectedIndex || binLoaded != lastBinLoaded) {
+    lastSelectedIndex = selectedIndex;
+    lastBinLoaded = binLoaded;
+    if (currentState == STATE_MENU) {
+      Serial.printf("[MENU] Amiibo selecionado: %d binLoaded: %d\n", selectedIndex, binLoaded);
+      drawScreen();
+    }
+  }
 
   if (currentState == STATE_MENU) {
     // Botão A = modo IR para 3DS
-    if (M5.BtnA.wasPressed()) {
+    if (StickCP2.BtnA.wasPressed()) {
+      Serial.println("[BTN A] Pressionado");
       if (!binLoaded) {
         statusMsg = "Selecione um amiibo!";
         drawScreen();
@@ -963,7 +985,8 @@ void loop() {
       }
     }
     // Botão B = modo NFC para Switch
-    if (M5.BtnB.wasPressed()) {
+    if (StickCP2.BtnB.wasPressed()) {
+      Serial.println("[BTN B] Pressionado");
       if (!binLoaded) {
         statusMsg = "Selecione um amiibo!";
         drawScreen();
