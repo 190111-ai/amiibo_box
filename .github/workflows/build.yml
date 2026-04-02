@@ -1,3 +1,4 @@
+```yaml
 name: Build AmiiboBox Firmware
 
 on:
@@ -59,15 +60,17 @@ jobs:
         run: |
           pip install esptool --break-system-packages
           DATADIR=$(arduino-cli config dump | grep "data:" | awk '{print $2}')
-          BOOT_APP=$(ls $DATADIR/packages/m5stack/hardware/esp32/*/tools/partitions/boot_app0.bin | tail -1)
+          BOOT_APP=$(find $DATADIR -name "boot_app0.bin" | head -1)
+          echo "boot_app0: $BOOT_APP"
           BIN=$(find ./build -name "*.ino.bin" | head -1)
           BOOT=$(find ./build -name "*.bootloader.bin" | head -1)
           PART=$(find ./build -name "*.partitions.bin" | head -1)
-          esptool.py --chip esp32 merge_bin \
+          echo "BIN: $BIN BOOT: $BOOT PART: $PART"
+          esptool --chip esp32 merge-bin \
             -o ./build/amiibobox_flash.bin \
-            --flash_mode dio \
-            --flash_freq 80m \
-            --flash_size 8MB \
+            --flash-mode dio \
+            --flash-freq 80m \
+            --flash-size 8MB \
             0x1000  $BOOT \
             0x8000  $PART \
             0xe000  $BOOT_APP \
@@ -79,3 +82,4 @@ jobs:
           name: amiibobox-firmware
           path: ./build/amiibobox_flash.bin
           retention-days: 30
+```
