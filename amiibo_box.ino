@@ -208,7 +208,9 @@ void scanAmiiboFiles() {
     String fname = String(file.name());
     Serial.printf("[SCAN] arquivo: %s\n", fname.c_str());
     if (fname.endsWith(".bin")) {
-      amiiboList[amiiboCount].filename = fname;
+      // Garante que o path tem / no início para o SPIFFS.open()
+      String path = fname.startsWith("/") ? fname : "/" + fname;
+      amiiboList[amiiboCount].filename = path;
       String nm = fname;
       if (nm.startsWith("/")) nm = nm.substring(1);
       if (nm.endsWith(".bin")) nm = nm.substring(0, nm.length() - 4);
