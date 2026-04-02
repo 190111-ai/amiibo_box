@@ -206,26 +206,44 @@ void scanAmiiboFiles() {
   File file = root.openNextFile();
   while (file && amiiboCount < MAX_AMIIBO) {
     String fname = String(file.name());
+    Serial.printf("[SCAN] arquivo: %s\n", fname.c_str());
     if (fname.endsWith(".bin")) {
       amiiboList[amiiboCount].filename = fname;
-      // Remove path e extensão para o nome de exibição
       String nm = fname;
       if (nm.startsWith("/")) nm = nm.substring(1);
       if (nm.endsWith(".bin")) nm = nm.substring(0, nm.length() - 4);
       amiiboList[amiiboCount].name = nm;
+      Serial.printf("[SCAN] amiibo[%d]: %s\n", amiiboCount, nm.c_str());
       amiiboCount++;
     }
     file = root.openNextFile();
   }
+  Serial.printf("[SCAN] total: %d amiibos\n", amiiboCount);
 }
 
 bool loadAmiiboBin(int index) {
-  if (index < 0 || index >= amiiboCount) return false;
-  File f = SPIFFS.open(amiiboList[index].filename, "r");
-  if (!f) return false;
-  if (f.size() < BIN_SIZE) { f.close(); return false; }
-  f.read(currentBin, BIN_SIZE);
+  Serial.printf("[LOAD] index=%d amiiboCount=%d\n", index, amiiboCount);
+  if (index < 0 || index >= amiiboCount) {
+    Serial.println("[LOAD] ERRO: index invalido");
+    return false;
+  }
+  String path = amiiboList[index].filename;
+  Serial.printf("[LOAD] Abrindo: %s\n", path.c_str());
+  File f = SPIFFS.open(path, "r");
+  if (!f) {
+    Serial.println("[LOAD] ERRO: nao foi possivel abrir o arquivo
+    Serial.flush();");
+    return false;
+  }
+  Serial.printf("[LOAD] Tamanho: %d bytes (esperado >= %d)\n", f.size(), BIN_SIZE);
+  if (f.size() < BIN_SIZE) {
+    Serial.printf("[LOAD] ERRO: arquivo muito pequeno (%d < %d)\n", f.size(), BIN_SIZE);
+    f.close();
+    return false;
+  }
+  size_t read = f.read(currentBin, BIN_SIZE);
   f.close();
+  Serial.printf("[LOAD] Lidos %d bytes OK\n", read);
   binLoaded = true;
   return true;
 }
@@ -863,14 +881,29 @@ void setupWebServer() {
 
   // Selecionar amiibo
   server.on("/select", HTTP_GET, [](AsyncWebServerRequest* req) {
-    if (!req->hasParam("index")) { req->send(400); return; }
+    if (!req->hasParam("index")) { req->send(400, "application/json", "{\"ok\":false,\"error\":\"sem parametro index\"}"); return; }
     int idx = req->getParam("index")->value().toInt();
-    if (idx >= 0 && idx < amiiboCount && loadAmiiboBin(idx)) {
-      selectedIndex = idx;
-      req->send(200, "application/json", "{\"ok\":true}");
-    } else {
-      req->send(400, "application/json", "{\"ok\":false}");
+    Serial.printf("[SELECT] idx=%d amiiboCount=%d\n", idx, amiiboCount);
+    Serial.flush();
+    if (idx < 0 || idx >= amiiboCount) {
+      String err = "{\"ok\":false,\"error\":\"index invalido: " + String(idx) + " de " + String(amiiboCount) + "\"}";
+      Serial.println("[SELECT] ERRO: " + err); Serial.flush();
+      req->send(400, "application/json", err);
+      return;
     }
+    if (!loadAmiiboBin(idx)) {
+      String path = amiiboList[idx].filename;
+      File f = SPIFFS.open(path, "r");
+      String err = "{\"ok\":false,\"error\":\"falha ao carregar: " + path + " tamanho=" + String(f ? f.size() : -1) + "\"}";
+      if (f) f.close();
+      Serial.println("[SELECT] ERRO: " + err); Serial.flush();
+      req->send(400, "application/json", err);
+      return;
+    }
+    selectedIndex = idx;
+    Serial.printf("[SELECT] OK: %s\n", amiiboList[idx].name.c_str());
+    Serial.flush();
+    req->send(200, "application/json", "{\"ok\":true}");
     drawScreen();
   });
 
