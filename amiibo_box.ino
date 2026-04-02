@@ -30,8 +30,7 @@
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
-#include <PN532.h>
-#include <PN532_I2C.h>
+#include <Adafruit_PN532.h>
 #include "soc/uart_struct.h"
 
 // ──────────────────────────────────────────────
@@ -69,8 +68,7 @@ static const uint8_t XOR_KEY[]       = {0xA5, 0x5A, 0xA5, 0x5A, 0xA5, 0x5A, 0xA5
 // ──────────────────────────────────────────────
 AsyncWebServer server(80);
 TwoWire i2cBus = TwoWire(0);
-PN532_I2C pn532i2c(i2cBus);
-PN532 nfc(pn532i2c);
+Adafruit_PN532 nfc(PN532_SDA, PN532_SCL, &i2cBus);
 
 // Lista de amiibos na memória
 struct AmiiboEntry {
