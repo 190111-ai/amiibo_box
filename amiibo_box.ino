@@ -231,8 +231,8 @@ bool loadAmiiboBin(int index) {
   Serial.printf("[LOAD] Abrindo: %s\n", path.c_str());
   File f = SPIFFS.open(path, "r");
   if (!f) {
-    Serial.println("[LOAD] ERRO: nao foi possivel abrir o arquivo
-    Serial.flush();");
+    Serial.println("[LOAD] ERRO: nao foi possivel abrir o arquivo");
+    Serial.flush();
     return false;
   }
   Serial.printf("[LOAD] Tamanho: %d bytes (esperado >= %d)\n", f.size(), BIN_SIZE);
