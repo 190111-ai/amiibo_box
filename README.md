@@ -1,4 +1,6 @@
-# AmiiboBox 🎮
+# AmiiboBox 🎮 QUEBRADO, NAO FUNCIONA POR ENQUANTO
+
+BROKEN, DOESN'T WORK FOR NOW
 
 Emulador de Amiibo para M5StickC Plus2.
 
